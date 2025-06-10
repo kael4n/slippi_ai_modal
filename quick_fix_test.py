@@ -1,17 +1,15 @@
-# run_slippi_ai_on_modal.py (v26 - Fixed to use original parsing script)
+# quick_fix_test.py - Test direct script execution
 
 import modal
 import os
 
-# FIX: Use the user's new repository as the single source of truth.
+# Same configuration as before
 REMOTE_REPO_URL = "https://github.com/kael4n/slippi_ai_modal.git"
 REMOTE_REPO_PATH = "/root/slippi-ai"
 
-# --- Modal Configuration ---
 replays_volume = modal.Volume.from_name("slippi-ai-replays")
 processed_data_volume = modal.Volume.from_name("slippi-ai-processed-data")
 
-# The image definition, now simplified to clone from the correct source.
 image = (
     modal.Image.debian_slim(python_version="3.10")
     .apt_install(
@@ -44,8 +42,8 @@ image = (
         "pyppmd", "pyzstd", "sentry-sdk", "setproctitle", "texttable"
     ])
     .run_commands(
-        # This now clones your repository, which includes the original slippi-ai structure
         f"git clone --recurse-submodules {REMOTE_REPO_URL} {REMOTE_REPO_PATH}",
+        f"cd {REMOTE_REPO_PATH} && git pull origin main",
     )
     .workdir(REMOTE_REPO_PATH)
     .run_commands(
@@ -55,7 +53,7 @@ image = (
 )
 
 app = modal.App(
-    name="slippi-ai-parser-definitive",
+    name="slippi-ai-quick-fix",
     image=image,
 )
 
@@ -64,44 +62,71 @@ app = modal.App(
         "/replays": replays_volume,
         "/processed": processed_data_volume,
     },
-    gpu="any",
-    timeout=7200
+    timeout=1800
 )
-def parse_replays():
+def quick_fix_test():
     import subprocess
+    import os
     
-    print("\n--- 🏁 Starting Replay Parsing ---")
+    print("--- 🚀 Quick Fix Test ---")
     
-    # Use the original slippi-ai parsing script
-    command = [
-        "python", "-m", "slippi_db.parse_local",
-        "--replays_path", "/replays",
-        "--output_path", "/processed",
-        "--recurse"
+    # Test the most promising approaches based on your debug output
+    
+    # 1. Try run_parsing.py directly
+    print("\n1. Testing run_parsing.py:")
+    try:
+        result = subprocess.run(
+            ["python", "run_parsing.py", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        print(f"Return code: {result.returncode}")
+        print("STDOUT:", result.stdout)
+        print("STDERR:", result.stderr)
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    # 2. Try parse_peppi directly  
+    print("\n2. Testing parse_peppi.py directly:")
+    try:
+        result = subprocess.run(
+            ["python", "slippi_db/parse_peppi.py", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        print(f"Return code: {result.returncode}")
+        print("STDOUT:", result.stdout)
+        print("STDERR:", result.stderr)
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    # 3. Try with explicit path and basic args
+    print("\n3. Testing with likely arguments:")
+    test_args = [
+        ["python", "run_parsing.py", "--input_dir", "/replays", "--output_dir", "/processed"],
+        ["python", "slippi_db/parse_peppi.py", "--input_dir", "/replays", "--output_dir", "/processed"],
+        ["python", "slippi_db/parse_local.py", "--input_dir", "/replays", "--output_dir", "/processed"],
     ]
     
-    print(f"Running command: {' '.join(command)}")
-    
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True,
-    )
-    
-    for line in iter(process.stdout.readline, ""):
-        print(line, end="")
-        
-    process.wait()
-    
-    if process.returncode == 0:
-        print("\n✅ Replay parsing completed successfully.")
-        processed_data_volume.commit()
-    else:
-        print(f"\n❌ Replay parsing failed with return code {process.returncode}")
+    for args in test_args:
+        try:
+            print(f"\nTrying: {' '.join(args)}")
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            print(f"Return code: {result.returncode}")
+            if result.stdout:
+                print("STDOUT:", result.stdout[:300])
+            if result.stderr:
+                print("STDERR:", result.stderr[:300])
+        except Exception as e:
+            print(f"Error: {e}")
 
 @app.local_entrypoint()
 def main():
-    parse_replays.remote()
+    quick_fix_test.remote()
